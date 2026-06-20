@@ -986,6 +986,7 @@ pub fn microcompact(messages: &mut [Message], keep_recent: usize) -> Microcompac
 
 /// 结果：在 LLM 压缩之前先尝试微压缩，如果足够则不调用 LLM。
 /// 返回 `true` 表示微压缩已释放足够 token，不需要 LLM 压缩。
+#[allow(dead_code)]
 pub fn microcompact_if_needed(
     messages: &mut [Message],
     config: &CompactionConfig,
@@ -994,7 +995,13 @@ pub fn microcompact_if_needed(
     external_working_set_paths: Option<&[String]>,
 ) -> bool {
     // 检查是否需要压缩
-    if !should_compact(messages, config, workspace, external_pins, external_working_set_paths) {
+    if !should_compact(
+        messages,
+        config,
+        workspace,
+        external_pins,
+        external_working_set_paths,
+    ) {
         return true; // 不需要压缩
     }
 
@@ -1009,7 +1016,13 @@ pub fn microcompact_if_needed(
         );
 
         // 再次检查微压缩后是否不再需要 LLM 压缩
-        !should_compact(messages, config, workspace, external_pins, external_working_set_paths)
+        !should_compact(
+            messages,
+            config,
+            workspace,
+            external_pins,
+            external_working_set_paths,
+        )
     } else {
         false // 无旧工具结果可清除，需要 LLM 压缩
     }
