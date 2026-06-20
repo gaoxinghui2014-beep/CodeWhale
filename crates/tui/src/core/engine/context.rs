@@ -467,6 +467,12 @@ pub(crate) fn compact_tool_result_for_context(
         return summary;
     }
 
+    // 尝试内容感知压缩（token-optimizer）
+    // 对新进入上下文的工具输出，使用内容类型检测 + 针对性压缩
+    if let Some(optimized) = try_content_aware_compression(tool_name, raw) {
+        return optimized;
+    }
+
     let limits = tool_result_context_limits_for_model(model);
     let raw_chars = raw.chars().count();
     let should_compact = raw_chars > limits.hard_limit_chars
@@ -603,4 +609,38 @@ fn route_output_reservation_for_window(model: &str, window_tokens: u32) -> u32 {
 
 pub(super) fn is_context_length_error_message(message: &str) -> bool {
     crate::error_taxonomy::classify_error_message(message) == ErrorCategory::InvalidInput
+}
+
+/// 使用 token-optimizer 对工具输出做内容感知压缩。
+///
+/// 返回 `Some(compressed)` 如果压缩有效（节省 >= 10%），
+/// 否则返回 `None` 让调用者回退到现有逻辑。
+fn try_content_aware_compression(tool_name: &str, raw: &str) -> Option<String> {
+    // 忽略太小的输出（不值得压缩）
+    if raw.len() < 512 {
+        return None;
+    }
+
+    // 忽略已经被专有路径处理的工具名称
+    if matches!(tool_name, "agent" | "run_tests" | "edit_file" | "apply_patch") {
+        return None;
+    }
+
+    let result = token_optimizer::compress_tool_output(raw, tool_name);
+
+    // 只在压缩有效果时才使用（节省 >= 10%）
+    if result.compression_ratio >= 0.10 {
+        tracing::trace!(
+            tool_name = tool_name,
+            content_type = ?result.content_type,
+            strategy = result.strategy,
+            tokens_before = result.tokens_before,
+            tokens_after = result.tokens_after,
+            ratio = result.compression_ratio,
+            "content-aware compression applied"
+        );
+        Some(result.compressed)
+    } else {
+        None
+    }
 }

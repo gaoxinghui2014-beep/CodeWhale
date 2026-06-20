@@ -12,6 +12,7 @@ members = [
     "crates/release",
     "crates/secrets",
     "crates/state",
+    "crates/token-optimizer",
     "crates/tools",
     "crates/tui",
     "crates/whaleflow",
