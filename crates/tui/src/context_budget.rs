@@ -122,6 +122,16 @@ impl PressureLevel {
     pub const fn suggests_compaction(self) -> bool {
         matches!(self, PressureLevel::High | PressureLevel::Critical)
     }
+
+    /// Whether this level warrants an automatic microcompact pass (cheap
+    /// placeholder replacement of old tool results) before falling back
+    /// to a full LLM compaction. Microcompact is free and cache-friendly
+    /// compared to an LLM summarisation call, so we fire it eagerly at
+    /// Critical pressure. v0.8.62.
+    #[must_use]
+    pub const fn suggests_microcompact(self) -> bool {
+        matches!(self, PressureLevel::Critical)
+    }
 }
 
 /// A computed snapshot of how a turn's input sits against a model's context
@@ -199,6 +209,14 @@ impl ContextBudget {
     #[must_use]
     pub fn should_compact(&self) -> bool {
         self.window_tokens > 0 && self.input_tokens >= self.compaction_trigger_tokens
+    }
+
+    /// Whether the current pressure level suggests an automatic microcompact
+    /// (cheap placeholder replacement of old tool results) before falling
+    /// back to a full LLM compaction. v0.8.62.
+    #[must_use]
+    pub fn suggests_microcompact(&self) -> bool {
+        self.pressure.suggests_microcompact()
     }
 
     /// Whether another `additional_input_tokens` of input would fit within the

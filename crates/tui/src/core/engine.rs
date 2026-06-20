@@ -27,6 +27,7 @@ use crate::client::DeepSeekClient;
 use crate::compaction::{
     CompactionConfig, compact_messages_safe, merge_system_prompts, should_compact,
 };
+use crate::context_guard::ContextGuard;
 use crate::config::{ApiProvider, Config, DEFAULT_MAX_SUBAGENTS, DEFAULT_TEXT_MODEL};
 use crate::error_taxonomy::{ErrorCategory, ErrorEnvelope, StreamError};
 use crate::features::{Feature, Features};
@@ -552,6 +553,10 @@ pub struct Engine {
     /// Append-only layered context manager (#159). Opt-in for v0.7.5 while
     /// cache-hit behavior is audited.
     seam_manager: Option<SeamManager>,
+    /// Context guard for tracking context window utilisation and
+    /// compaction circuit-breaker state. Updated after each LLM call
+    /// and checked before compaction. v0.8.62.
+    context_guard: ContextGuard,
     turn_counter: u64,
     /// Post-edit LSP diagnostics injection (#136). Populated unconditionally
     /// — when LSP is disabled in config, this is an inert manager that
@@ -898,6 +903,7 @@ impl Engine {
             deepseek_client,
             deepseek_client_error,
             api_key_env_only_recovery,
+            context_guard: ContextGuard::new(),
             session,
             subagent_manager,
             shell_manager,
@@ -2234,6 +2240,15 @@ impl Engine {
         self.session.total_usage.add(&turn.usage);
         self.record_goal_usage_for_turn(&turn.usage, turn.elapsed());
 
+        // Update context guard with latest usage for window utilisation tracking
+        if let Some(window) = crate::models::context_window_for_model(&self.session.model) {
+            self.context_guard.update_usage(
+                u64::from(turn.usage.input_tokens),
+                u64::from(turn.usage.output_tokens),
+                u64::from(window),
+            );
+        }
+
         // Emit turn complete event — after all post-turn bookkeeping so
         // the terminal is immediately responsive when the UI receives it.
         self.emit_goal_updated().await;
@@ -2352,17 +2367,27 @@ impl Engine {
         let mut turn_status = TurnOutcomeStatus::Completed;
         let mut turn_error = None;
 
-        match compact_messages_safe(
-            &client,
-            &self.session.messages,
-            &self.config.compaction,
-            Some(&self.session.workspace),
-            Some(&compaction_pins),
-            Some(&compaction_paths),
-        )
-        .await
-        {
-            Ok(result) => {
+        // Check context guard before attempting compaction
+        if self.context_guard.is_compaction_disabled() {
+            let reason = format!(
+                "Compaction skipped: circuit breaker tripped ({} consecutive failures)",
+                self.context_guard.consecutive_failures()
+            );
+            self.emit_compaction_failed(id.clone(), false, reason.clone())
+                .await;
+        } else {
+            match compact_messages_safe(
+                &client,
+                &self.session.messages,
+                &self.config.compaction,
+                Some(&self.session.workspace),
+                Some(&compaction_pins),
+                Some(&compaction_paths),
+            )
+            .await
+            {
+                Ok(result) => {
+                    self.context_guard.record_compaction_success();
                 if !result.messages.is_empty() || self.session.messages.is_empty() {
                     let messages_after = result.messages.len();
                     self.session.messages = result.messages.into();
@@ -2396,6 +2421,7 @@ impl Engine {
                 }
             }
             Err(err) => {
+                self.context_guard.record_compaction_failure();
                 let message = format!("Manual context compaction failed: {err}");
                 self.emit_compaction_failed(id, false, message.clone())
                     .await;
@@ -2403,7 +2429,8 @@ impl Engine {
                 turn_status = TurnOutcomeStatus::Failed;
                 turn_error = Some(message);
             }
-        }
+            } // end match compact_messages_safe
+        } // end else (context guard not disabled)
 
         let _ = self
             .tx_event
@@ -2548,28 +2575,33 @@ impl Engine {
             .min(target_budget.saturating_sub(1))
             .max(1);
 
-        match compact_messages_safe(
-            client,
-            &self.session.messages,
-            &forced_config,
-            Some(&self.session.workspace),
-            None,
-            None,
-        )
-        .await
-        {
-            Ok(result) => {
-                retries_used = result.retries_used;
-                compacted_messages = result.messages;
-                summary_prompt = result.summary_prompt;
-            }
-            Err(err) => {
-                let _ = self
-                    .tx_event
-                    .send(Event::status(format!(
-                        "Emergency compaction API pass failed: {err}. Falling back to local trim."
-                    )))
-                    .await;
+        // Check context guard before attempting compaction
+        if !self.context_guard.is_compaction_disabled() {
+            match compact_messages_safe(
+                client,
+                &self.session.messages,
+                &forced_config,
+                Some(&self.session.workspace),
+                None,
+                None,
+            )
+            .await
+            {
+                Ok(result) => {
+                    self.context_guard.record_compaction_success();
+                    retries_used = result.retries_used;
+                    compacted_messages = result.messages;
+                    summary_prompt = result.summary_prompt;
+                }
+                Err(err) => {
+                    self.context_guard.record_compaction_failure();
+                    let _ = self
+                        .tx_event
+                        .send(Event::status(format!(
+                            "Emergency compaction API pass failed: {err}. Falling back to local trim."
+                        )))
+                        .await;
+                }
             }
         }
 

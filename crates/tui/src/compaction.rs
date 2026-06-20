@@ -25,12 +25,22 @@ use crate::models::{
 /// compaction on long sessions of small messages, which is exactly the
 /// case where rewriting the V4 prefix cache is least valuable. Token
 /// budget is the right signal; message count was a 128K-era heuristic.
+///
+/// v0.8.62 added per-result byte budget and microcompact tunables inspired
+/// by openhuman-main's layered context pipeline.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompactionConfig {
     pub enabled: bool,
     pub token_threshold: usize,
     pub model: String,
     pub cache_summary: bool,
+    /// Per-tool-result byte budget applied inline at tool-execution time.
+    /// Results larger than this are truncated with a marker before entering
+    /// the model's context. 0 disables the budget. Default: 16 KiB.
+    pub tool_result_budget_bytes: usize,
+    /// Number of most-recent tool results microcompact leaves untouched.
+    /// Older results get their bodies replaced with a placeholder. Default: 5.
+    pub microcompact_keep_recent: usize,
 }
 
 impl Default for CompactionConfig {
@@ -55,6 +65,8 @@ impl Default for CompactionConfig {
             token_threshold: 800_000,
             model: DEFAULT_TEXT_MODEL.to_string(),
             cache_summary: true,
+            tool_result_budget_bytes: crate::tool_result_budget::DEFAULT_TOOL_RESULT_BUDGET_BYTES,
+            microcompact_keep_recent: MICROCOMPACT_DEFAULT_KEEP_RECENT,
         }
     }
 }
@@ -891,6 +903,120 @@ where
     bytes_saved
 }
 
+// ── Microcompact ───────────────────────────────────────────────────
+///
+/// 微压缩（Microcompact）是 LLM 摘要的廉价替代方案。它不生成文摘 ——
+/// 而是遍历历史记录，将较旧的 `ToolResult` 内容替换为短占位符。
+/// 信封本身被保留，以维持 `AssistantToolCalls ⇔ ToolResults` API 不变性。
+///
+/// 参考 openhuman-main 的 microcompact 模块设计。
+
+/// 用于替换已清除的工具结果正文的占位符。
+/// 必须跨版本保持稳定，以便调用者可以对其进行模式匹配。
+pub const MICROCOMPACT_CLEARED_PLACEHOLDER: &str = "[Old tool result content cleared]";
+
+/// 默认保留的最近工具结果数量。
+/// 最近 N 个工具结果保持热状态，以便模型仍然可以对其进行推理。
+pub const MICROCOMPACT_DEFAULT_KEEP_RECENT: usize = 5;
+
+/// 单次微压缩传递的变更摘要。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MicrocompactStats {
+    /// 内容被清除的 `ToolResults` 信封数量。
+    pub envelopes_cleared: usize,
+    /// 内容被替换的单个工具结果条目数量。
+    pub entries_cleared: usize,
+    /// 从对话中释放的字节数（近似值 —— 仅计算 `content` 字符串长度差异）。
+    pub bytes_freed: usize,
+}
+
+/// 遍历 `messages`，清除所有 `ToolResult` 内容，保留最近 `keep_recent` 个。
+///
+/// 清除操作是幂等的：对同一历史记录运行两次，第二次调用为 no-op，
+/// 因为已清除的条目会匹配占位符并被跳过。
+pub fn microcompact(messages: &mut [Message], keep_recent: usize) -> MicrocompactStats {
+    // 第一遍：找到所有 `ToolResult` 的索引。
+    let mut tool_result_indices: Vec<(usize, usize)> = Vec::new();
+    for (msg_idx, message) in messages.iter().enumerate() {
+        for (block_idx, block) in message.content.iter().enumerate() {
+            if matches!(block, ContentBlock::ToolResult { .. }) {
+                tool_result_indices.push((msg_idx, block_idx));
+            }
+        }
+    }
+
+    // 最近的条目在列表末尾 —— 剥离 `keep_recent` 个，保留不动。
+    if tool_result_indices.len() <= keep_recent {
+        return MicrocompactStats::default();
+    }
+    let cut = tool_result_indices.len().saturating_sub(keep_recent);
+    let indices_to_clear = &tool_result_indices[..cut];
+
+    let mut stats = MicrocompactStats::default();
+    let mut envelope_set: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    for &(msg_idx, block_idx) in indices_to_clear {
+        let ContentBlock::ToolResult {
+            content,
+            content_blocks,
+            ..
+        } = &mut messages[msg_idx].content[block_idx]
+        else {
+            continue;
+        };
+
+        if content == MICROCOMPACT_CLEARED_PLACEHOLDER {
+            // 在之前的传递中已被清除 —— 跳过。
+            continue;
+        }
+
+        let old_len = content.len();
+        *content = MICROCOMPACT_CLEARED_PLACEHOLDER.to_string();
+        // 清除 content_blocks 以避免残留
+        *content_blocks = None;
+        let freed = old_len.saturating_sub(MICROCOMPACT_CLEARED_PLACEHOLDER.len());
+        stats.bytes_freed += freed;
+        stats.entries_cleared += 1;
+        envelope_set.insert(msg_idx);
+    }
+
+    stats.envelopes_cleared = envelope_set.len();
+    stats
+}
+
+/// 结果：在 LLM 压缩之前先尝试微压缩，如果足够则不调用 LLM。
+/// 返回 `true` 表示微压缩已释放足够 token，不需要 LLM 压缩。
+pub fn microcompact_if_needed(
+    messages: &mut [Message],
+    config: &CompactionConfig,
+    workspace: Option<&Path>,
+    external_pins: Option<&[usize]>,
+    external_working_set_paths: Option<&[String]>,
+) -> bool {
+    // 检查是否需要压缩
+    if !should_compact(messages, config, workspace, external_pins, external_working_set_paths) {
+        return true; // 不需要压缩
+    }
+
+    let keep_recent = config.microcompact_keep_recent.max(1);
+    let stats = microcompact(messages, keep_recent);
+    if stats.envelopes_cleared > 0 {
+        tracing::info!(
+            envelopes_cleared = stats.envelopes_cleared,
+            entries_cleared = stats.entries_cleared,
+            bytes_freed = stats.bytes_freed,
+            "[microcompact] 已清除旧工具结果"
+        );
+
+        // 再次检查微压缩后是否不再需要 LLM 压缩
+        !should_compact(messages, config, workspace, external_pins, external_working_set_paths)
+    } else {
+        false // 无旧工具结果可清除，需要 LLM 压缩
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────
+
 /// Result of a compaction operation with metadata.
 #[derive(Debug)]
 pub struct CompactionResult {
@@ -983,7 +1109,7 @@ pub async fn compact_messages_safe(
         );
     }
 
-    let compaction_input: &[Message] = if pruned_bytes > 0 {
+    let mut compaction_input: Vec<Message> = if pruned_bytes > 0 {
         logging::info(format!(
             "Local tool-result prune saved {pruned_bytes} bytes before LLM compaction"
         ));
@@ -995,10 +1121,41 @@ pub async fn compact_messages_safe(
                 retries_used: 0,
             });
         }
-        &pruned_messages
+        pruned_messages
     } else {
-        messages
+        messages.to_vec()
     };
+
+    // Stage: Microcompact — try cheap placeholder replacement before LLM summary.
+    // If microcompact clears enough old tool results to drop below the threshold,
+    // we can skip the expensive LLM call entirely.
+    if was_over_threshold && !now_under_threshold {
+        let keep_recent = config.microcompact_keep_recent.max(1);
+        let mc_stats = microcompact(&mut compaction_input, keep_recent);
+        if mc_stats.envelopes_cleared > 0 {
+            logging::info(format!(
+                "Microcompact cleared {} envelopes ({} entries, {} bytes freed)",
+                mc_stats.envelopes_cleared,
+                mc_stats.entries_cleared,
+                mc_stats.bytes_freed,
+            ));
+            // Re-check if we're still over threshold
+            if !should_compact(
+                &compaction_input,
+                config,
+                workspace,
+                external_pins,
+                external_working_set_paths,
+            ) {
+                return Ok(CompactionResult {
+                    messages: compaction_input,
+                    summary_prompt: None,
+                    removed_messages: Vec::new(),
+                    retries_used: 0,
+                });
+            }
+        }
+    }
 
     let mut last_error: Option<anyhow::Error> = None;
 
@@ -1011,7 +1168,7 @@ pub async fn compact_messages_safe(
 
         match compact_messages(
             client,
-            compaction_input,
+            &compaction_input,
             config,
             workspace,
             external_pins,
