@@ -1465,6 +1465,11 @@ impl Default for FleetConfigToml {
 /// before writing custom code — using a six-rung decision ladder (YAGNI →
 /// stdlib → native → existing dep → one-line → minimum).
 ///
+/// Supports auto-relaxing for long sessions: when `long_session_turn_threshold`
+/// is set and the turn count reaches it, `long_session_level` replaces the
+/// base `level`. This lets short tasks stay disciplined while long tasks get
+/// the latitude needed for multi-step reasoning.
+///
 /// See `docs/ponytail-code-compaction-strategy.md` for the full strategy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeCompactionToml {
@@ -1474,6 +1479,14 @@ pub struct CodeCompactionToml {
     /// Intensity level: "lite", "full" (default), or "ultra".
     #[serde(default = "default_code_compaction_level")]
     pub level: String,
+    /// Turn count at which to auto-switch to `long_session_level`.
+    /// `None` means never auto-switch. Default: `None`.
+    #[serde(default)]
+    pub long_session_turn_threshold: Option<u64>,
+    /// Compaction level for long sessions: "lite", "full", or "ultra".
+    /// `None` means no change. Default: `None`.
+    #[serde(default)]
+    pub long_session_level: Option<String>,
 }
 
 fn default_code_compaction_enabled() -> bool {
@@ -1489,6 +1502,8 @@ impl Default for CodeCompactionToml {
         Self {
             enabled: default_code_compaction_enabled(),
             level: default_code_compaction_level(),
+            long_session_turn_threshold: None,
+            long_session_level: None,
         }
     }
 }

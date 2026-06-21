@@ -1091,6 +1091,7 @@ fn build_engine_config(app: &App, config: &Config) -> EngineConfig {
         features: config.features(),
         compaction: app.compaction_config(),
         code_compaction_block: config.code_compaction_block(),
+        code_compaction_config: config.code_compaction_config(),
         todos: app.todos.clone(),
         plan_state: app.plan_state.clone(),
         goal_state: crate::tools::goal::new_shared_goal_state_from_host_status(

@@ -1040,6 +1040,8 @@ default_text_model = "deepseek-ai/deepseek-v4-pro"
 #                         #   lite:  build what's asked, name lazier alternative
 #                         #   full:  ladder enforced, stdlib and native first
 #                         #   ultra: YAGNI extremist, deletion before addition
+# long_session_turn_threshold = 20  # Turns before auto-relaxing level (None = never)
+# long_session_level = "lite"       # Level to use after threshold (None = no change)
 
 # ─────────────────────────────────────────────────────────────────────────────────
 # Requirements (admin constraints) example file

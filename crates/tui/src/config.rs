@@ -3344,8 +3344,17 @@ impl Config {
 
     /// Resolve code compaction instruction block from `[code_compaction]` config.
     /// Returns `None` when disabled, `Some(block)` when enabled.
+    /// Does not consider `long_session_turn_threshold` — use
+    /// [`code_compaction_config`] for turn-aware resolution.
     #[must_use]
     pub fn code_compaction_block(&self) -> Option<String> {
+        self.code_compaction_config().and_then(|cfg| cfg.instruction_block())
+    }
+
+    /// Resolve the full [`codewhale_code_compact::CodeCompactionConfig`] from
+    /// `[code_compaction]`, including long-session auto-relaxing fields.
+    #[must_use]
+    pub fn code_compaction_config(&self) -> Option<codewhale_code_compact::CodeCompactionConfig> {
         let toml = self.code_compaction.clone().unwrap_or_default();
         if !toml.enabled {
             return None;
@@ -3355,11 +3364,17 @@ impl Config {
             "ultra" => codewhale_code_compact::CompactLevel::Ultra,
             _ => codewhale_code_compact::CompactLevel::Full,
         };
-        let cfg = codewhale_code_compact::CodeCompactionConfig {
+        let long_session_level = toml.long_session_level.as_deref().map(|s| match s {
+            "lite" => codewhale_code_compact::CompactLevel::Lite,
+            "ultra" => codewhale_code_compact::CompactLevel::Ultra,
+            _ => codewhale_code_compact::CompactLevel::Full,
+        });
+        Some(codewhale_code_compact::CodeCompactionConfig {
             enabled: true,
             level,
-        };
-        cfg.instruction_block()
+            long_session_turn_threshold: toml.long_session_turn_threshold,
+            long_session_level,
+        })
     }
 
     /// Resolve community skill settings with defaults applied.

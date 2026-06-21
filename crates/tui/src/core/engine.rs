@@ -386,6 +386,11 @@ pub struct EngineConfig {
     /// Pre-rendered code compaction instruction block. None = disabled.
     /// Built from `[code_compaction]` config; default enabled (full).
     pub code_compaction_block: Option<String>,
+    /// Structured code compaction configuration, including long-session
+    /// auto-relaxing fields. `None` when code compaction is disabled.
+    /// Used by `rebuild_stable_prompt` to compute the turn-aware
+    /// instruction block. v0.8.62.
+    pub code_compaction_config: Option<codewhale_code_compact::CodeCompactionConfig>,
     /// Ask-only permission rules loaded from sibling `permissions.toml`.
     pub exec_policy_engine: codewhale_execpolicy::ExecPolicyEngine,
 }
@@ -452,6 +457,7 @@ impl Default for EngineConfig {
             tools: None,
             workspace_follow_symlinks: false,
             code_compaction_block: None,
+            code_compaction_config: None,
             exec_policy_engine: codewhale_execpolicy::ExecPolicyEngine::new(Vec::new(), Vec::new()),
         }
     }
@@ -2920,7 +2926,11 @@ impl Engine {
                 show_thinking: self.config.show_thinking,
                 verbosity: self.config.verbosity.as_deref(),
                 skills_scan_codewhale_only: self.config.skills_scan_codewhale_only,
-                code_compaction_block: self.config.code_compaction_block.clone(),
+                code_compaction_block: self
+                    .config
+                    .code_compaction_config
+                    .and_then(|cfg| cfg.instruction_block_for_turn(self.turn_counter))
+                    .or_else(|| self.config.code_compaction_block.clone()),
             },
         );
         let mut stable_prompt =

@@ -39,7 +39,12 @@ pub enum CompactLevel {
 /// injected into the system prompt. The model is instructed to prefer
 /// standard library, native platform features, one-liners, and existing
 /// dependencies before writing custom code.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Supports auto-relaxing for long sessions: when `long_session_turn_threshold`
+/// is set and the turn count reaches it, `long_session_level` replaces the
+/// base `level`. This lets short tasks stay disciplined while long tasks get
+/// the latitude needed for multi-step reasoning.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CodeCompactionConfig {
     /// Enable or disable code compaction. Default: true.
     #[serde(default = "default_enabled")]
@@ -47,6 +52,15 @@ pub struct CodeCompactionConfig {
     /// Intensity level. Default: [`CompactLevel::Full`].
     #[serde(default)]
     pub level: CompactLevel,
+    /// Turn count at which to auto-switch to `long_session_level`.
+    /// `None` means never auto-switch. Default: `None`.
+    #[serde(default)]
+    pub long_session_turn_threshold: Option<u64>,
+    /// Compaction level to use once the turn count reaches
+    /// `long_session_turn_threshold`. `None` means no change.
+    /// Default: `None`.
+    #[serde(default)]
+    pub long_session_level: Option<CompactLevel>,
 }
 
 fn default_enabled() -> bool {
@@ -58,6 +72,8 @@ impl Default for CodeCompactionConfig {
         Self {
             enabled: default_enabled(),
             level: CompactLevel::default(),
+            long_session_turn_threshold: None,
+            long_session_level: None,
         }
     }
 }
@@ -132,14 +148,42 @@ so. No abstraction until a second caller exists. The best code is the code \
 never written.";
 
 impl CodeCompactionConfig {
-    /// Return the full system-prompt instruction block, or `None` if disabled.
+    /// Return the compaction level that should apply at the given turn count.
+    /// If `long_session_turn_threshold` is set and reached, returns
+    /// `long_session_level`; otherwise returns the base `level`.
+    #[must_use]
+    pub fn effective_level(&self, turn_count: u64) -> CompactLevel {
+        if let (Some(threshold), Some(level)) =
+            (self.long_session_turn_threshold, self.long_session_level)
+        {
+            if turn_count >= threshold {
+                return level;
+            }
+        }
+        self.level
+    }
+
+    /// Return the full system-prompt instruction block for the base level,
+    /// or `None` if disabled. Does not consider long-session auto-relaxing.
     #[must_use]
     pub fn instruction_block(&self) -> Option<String> {
+        self.instruction_block_for_level(self.level)
+    }
+
+    /// Return the instruction block for the compaction level that should
+    /// apply at the given turn count, or `None` if disabled.
+    #[must_use]
+    pub fn instruction_block_for_turn(&self, turn_count: u64) -> Option<String> {
+        self.instruction_block_for_level(self.effective_level(turn_count))
+    }
+
+    /// Return the instruction block for a specific level, or `None` if disabled.
+    fn instruction_block_for_level(&self, level: CompactLevel) -> Option<String> {
         if !self.enabled {
             return None;
         }
 
-        let intro = match self.level {
+        let intro = match level {
             CompactLevel::Lite => LITE_INSTRUCTIONS,
             CompactLevel::Full => FULL_INSTRUCTIONS,
             CompactLevel::Ultra => ULTRA_INSTRUCTIONS,
@@ -167,6 +211,8 @@ mod tests {
         let cfg = CodeCompactionConfig {
             enabled: false,
             level: CompactLevel::Full,
+            long_session_turn_threshold: None,
+            long_session_level: None,
         };
         assert!(cfg.instruction_block().is_none());
     }
@@ -186,6 +232,8 @@ mod tests {
             let cfg = CodeCompactionConfig {
                 enabled: true,
                 level,
+                long_session_turn_threshold: None,
+                long_session_level: None,
             };
             let block = cfg.instruction_block().unwrap();
             assert!(block.contains("Decision Ladder"));
@@ -198,6 +246,8 @@ mod tests {
         let cfg = CodeCompactionConfig {
             enabled: true,
             level: CompactLevel::Lite,
+            long_session_turn_threshold: None,
+            long_session_level: None,
         };
         let block = cfg.instruction_block().unwrap();
         assert!(block.contains("Lite"));
@@ -208,9 +258,63 @@ mod tests {
         let cfg = CodeCompactionConfig {
             enabled: true,
             level: CompactLevel::Ultra,
+            long_session_turn_threshold: None,
+            long_session_level: None,
         };
         let block = cfg.instruction_block().unwrap();
         assert!(block.contains("Ultra"));
         assert!(block.contains("YAGNI extremist"));
+    }
+
+    #[test]
+    fn effective_level_uses_base_when_no_threshold() {
+        let cfg = CodeCompactionConfig {
+            enabled: true,
+            level: CompactLevel::Full,
+            long_session_turn_threshold: None,
+            long_session_level: Some(CompactLevel::Lite),
+        };
+        assert_eq!(cfg.effective_level(0), CompactLevel::Full);
+        assert_eq!(cfg.effective_level(100), CompactLevel::Full);
+    }
+
+    #[test]
+    fn effective_level_switches_at_threshold() {
+        let cfg = CodeCompactionConfig {
+            enabled: true,
+            level: CompactLevel::Full,
+            long_session_turn_threshold: Some(20),
+            long_session_level: Some(CompactLevel::Lite),
+        };
+        assert_eq!(cfg.effective_level(0), CompactLevel::Full);
+        assert_eq!(cfg.effective_level(19), CompactLevel::Full);
+        assert_eq!(cfg.effective_level(20), CompactLevel::Lite);
+        assert_eq!(cfg.effective_level(100), CompactLevel::Lite);
+    }
+
+    #[test]
+    fn instruction_block_for_turn_switches_level() {
+        let cfg = CodeCompactionConfig {
+            enabled: true,
+            level: CompactLevel::Full,
+            long_session_turn_threshold: Some(15),
+            long_session_level: Some(CompactLevel::Lite),
+        };
+        let early = cfg.instruction_block_for_turn(5).unwrap();
+        assert!(early.contains("Full"));
+        let late = cfg.instruction_block_for_turn(20).unwrap();
+        assert!(late.contains("Lite"));
+    }
+
+    #[test]
+    fn long_session_level_none_means_no_switch() {
+        let cfg = CodeCompactionConfig {
+            enabled: true,
+            level: CompactLevel::Full,
+            long_session_turn_threshold: Some(10),
+            long_session_level: None,
+        };
+        assert_eq!(cfg.effective_level(5), CompactLevel::Full);
+        assert_eq!(cfg.effective_level(50), CompactLevel::Full);
     }
 }
