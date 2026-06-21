@@ -1044,6 +1044,46 @@ default_text_model = "deepseek-ai/deepseek-v4-pro"
 # long_session_level = "lite"       # Level to use after threshold (None = no change)
 
 # ─────────────────────────────────────────────────────────────────────────────────
+# Curl-based Proxy / Relay Services
+# ─────────────────────────────────────────────────────────────────────────────────
+# When your organization provides an LLM relay service that already holds an API
+# key, you can configure it here as a curl template.  CodeWhale parses the curl
+# command, substitutes the actual prompt into the body (either via `{{PROMPT}}`
+# placeholder or by auto-detecting `messages[*].content`), and sends the request
+# directly — bypassing the normal API-key path.
+#
+# Each `[[proxy_services]]` block defines one proxy.  Multiple proxies are
+# supported (for example, one for TaoToken, one for Volvo Group GPT).
+#
+# Mode:
+#   "always"   — always use this proxy (ignore the normal API key)
+#   "fallback" — only use this proxy when the normal API key request fails
+#
+# Global `fallback_proxy` (top-level, outside the array) names which
+# proxy service to use when an API-key request fails.  When absent, the
+# first `mode = "fallback"` proxy is tried.
+#
+# Body substitution:
+#   1. If the curl body contains `{{PROMPT}}`, it is replaced with the user's
+#      prompt.  `{{SYSTEM}}` (optional) is replaced with the system prompt.
+#   2. Otherwise, the parser auto-detects `messages[*].content` — the LAST
+#      `role: "user"` message gets the user prompt, and the first `role: "system"`
+#      message gets the system prompt.
+#
+# [[proxy_services]]
+# name = "taotoken"
+# curl_template = """curl 'https://taotoken.net/api/v1/chat/completions' -H 'Authorization: Bearer sk-xxx' -H 'Content-Type: application/json' --data-raw '{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"{{PROMPT"}}],"stream":true}'"""
+# mode = "fallback"
+#
+# [[proxy_services]]
+# name = "volvo-gpt"
+# curl_template = """curl 'https://gpt.volvogroup.com/api/history/generate' -H 'Authorization: Bearer token' -H 'Content-Type: application/json' --data-raw '{"messages":[{"type":1,"role":"user","content":"{{PROMPT}}","model":"GPT5.4"}],"has_uploaded_files":false}'"""
+# mode = "always"
+#
+# # Which proxy to use when API key fails (must match a name above)
+# fallback_proxy = "taotoken"
+
+# ─────────────────────────────────────────────────────────────────────────────────
 # Requirements (admin constraints) example file
 # ─────────────────────────────────────────────────────────────────────────────────
 # allowed_approval_policies = ["on-request", "untrusted", "never"]

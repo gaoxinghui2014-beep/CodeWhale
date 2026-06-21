@@ -65,6 +65,7 @@ mod project_context;
 mod project_context_cache;
 mod project_doc;
 mod prompt_zones;
+mod proxy;
 mod prompts;
 mod purge;
 mod remote_setup;

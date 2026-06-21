@@ -21,6 +21,9 @@ use crate::llm_client::{
 };
 use crate::logging;
 use crate::models::{MessageRequest, MessageResponse, ServerToolUsage, SystemPrompt, Usage};
+use crate::proxy::ProxyClient;
+use crate::proxy::ProxyMode;
+use crate::client::chat::parse_chat_message;
 
 pub(super) fn to_api_tool_name(name: &str) -> String {
     let mut out = String::new();
@@ -162,6 +165,10 @@ pub struct DeepSeekClient {
     rate_limiter: Arc<AsyncMutex<TokenBucket>>,
     path_suffix: Option<String>,
     pub(super) stream_idle_timeout: Duration,
+    /// Pre-built proxy clients for each configured proxy service.
+    proxy_clients: Vec<ProxyClient>,
+    /// Name of the proxy service to use when API key requests fail.
+    fallback_proxy: Option<String>,
 }
 
 const CONNECTION_FAILURE_THRESHOLD: u32 = 2;
@@ -330,6 +337,8 @@ impl Clone for DeepSeekClient {
             rate_limiter: self.rate_limiter.clone(),
             path_suffix: self.path_suffix.clone(),
             stream_idle_timeout: self.stream_idle_timeout,
+            proxy_clients: self.proxy_clients.clone(),
+            fallback_proxy: self.fallback_proxy.clone(),
         }
     }
 }
@@ -623,6 +632,9 @@ impl DeepSeekClient {
             insecure_skip_tls_verify,
         )?;
 
+        // Build proxy clients from config
+        let (proxy_clients, fallback_proxy) = build_proxy_clients(config);
+
         Ok(Self {
             http_client,
             api_key,
@@ -634,6 +646,8 @@ impl DeepSeekClient {
             rate_limiter: Arc::new(AsyncMutex::new(TokenBucket::from_env())),
             path_suffix,
             stream_idle_timeout,
+            proxy_clients,
+            fallback_proxy,
         })
     }
 
@@ -1109,6 +1123,120 @@ impl DeepSeekClient {
             }
         }
     }
+
+    /// Find a proxy client with mode="always" (should be used instead of API key).
+    fn find_active_proxy(&self) -> Option<&ProxyClient> {
+        self.proxy_clients
+            .iter()
+            .find(|p| p.mode() == ProxyMode::Always)
+    }
+
+    /// Find the fallback proxy client (matching `fallback_proxy` name, or first fallback).
+    fn find_fallback_proxy(&self) -> Option<&ProxyClient> {
+        if let Some(ref name) = self.fallback_proxy {
+            self.proxy_clients
+                .iter()
+                .find(|p| p.name() == name.as_str() && p.mode() == ProxyMode::Fallback)
+        } else {
+            self.proxy_clients
+                .iter()
+                .find(|p| p.mode() == ProxyMode::Fallback)
+        }
+    }
+
+    /// Send a non-streaming message request via a proxy client.
+    async fn create_message_via_proxy(
+        &self,
+        proxy: &ProxyClient,
+        request: &MessageRequest,
+    ) -> Result<MessageResponse> {
+        let user_prompt = extract_user_prompt(request);
+        let system_prompt = extract_system_prompt(request);
+
+        let response_text = proxy.send(&user_prompt, system_prompt.as_deref()).await?;
+
+        // Try to parse as OpenAI-compatible JSON response
+        let value: Value = serde_json::from_str(&response_text)
+            .context("Failed to parse proxy response as JSON")?;
+        parse_chat_message(&value)
+    }
+
+    /// Send a streaming message request via a proxy client.
+    async fn create_stream_via_proxy(
+        &self,
+        proxy: &ProxyClient,
+        request: &MessageRequest,
+    ) -> Result<crate::llm_client::StreamEventBox> {
+        let user_prompt = extract_user_prompt(request);
+        let system_prompt = extract_system_prompt(request);
+
+        proxy.send_stream(&user_prompt, system_prompt.as_deref()).await
+    }
+}
+
+/// Transform a `MessageRequest` into an `MessageResponse` by treating the
+/// proxy non-streaming path.
+fn extract_user_prompt(request: &MessageRequest) -> String {
+    request
+        .messages
+        .last()
+        .and_then(|msg| msg.content.first())
+        .and_then(|block| match block {
+            crate::models::ContentBlock::Text { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+fn extract_system_prompt(request: &MessageRequest) -> Option<String> {
+    request.system.as_ref().and_then(|sys| match sys {
+        crate::models::SystemPrompt::Text(text) => Some(text.clone()),
+        crate::models::SystemPrompt::Blocks(blocks) => {
+            let joined = blocks.iter().map(|b| b.text.clone()).collect::<Vec<_>>().join("\n");
+            if joined.trim().is_empty() { None } else { Some(joined) }
+        }
+    })
+}
+
+/// Build proxy clients from config.
+fn build_proxy_clients(config: &Config) -> (Vec<ProxyClient>, Option<String>) {
+    let Some(ref services) = config.proxy_services else {
+        return (Vec::new(), None);
+    };
+
+    let insecure_skip_tls_verify = config.insecure_skip_tls_verify();
+    let mut clients = Vec::new();
+
+    for service in services {
+        match ProxyClient::new(
+            &service.name,
+            &service.curl_template,
+            &service.mode,
+            insecure_skip_tls_verify,
+        ) {
+            Ok(client) => {
+                logging::info(format!(
+                    "Proxy service '{}' loaded (mode={}, url={})",
+                    client.name(),
+                    match client.mode() {
+                        ProxyMode::Always => "always",
+                        ProxyMode::Fallback => "fallback",
+                    },
+                    client.parsed_curl.url,
+                ));
+                clients.push(client);
+            }
+            Err(err) => {
+                logging::warn(format!(
+                    "Failed to build proxy client for '{}': {err}",
+                    service.name
+                ));
+            }
+        }
+    }
+
+    let fallback = config.fallback_proxy.clone();
+    (clients, fallback)
 }
 
 /// Translate the structured `LlmError` into both a categorical label
@@ -1166,26 +1294,70 @@ impl LlmClient for DeepSeekClient {
     }
 
     async fn create_message(&self, request: MessageRequest) -> Result<MessageResponse> {
-        if self.api_provider == ApiProvider::OpenaiCodex {
-            return self.handle_responses_message(request).await;
+        // Check if a proxy with mode=always should be used
+        if let Some(proxy) = self.find_active_proxy() {
+            return self.create_message_via_proxy(proxy, &request).await;
         }
-        if self.api_provider == ApiProvider::Anthropic {
-            return self.handle_anthropic_message(request).await;
+
+        let result = if self.api_provider == ApiProvider::OpenaiCodex {
+            self.handle_responses_message(request.clone()).await
+        } else if self.api_provider == ApiProvider::Anthropic {
+            self.handle_anthropic_message(request.clone()).await
+        } else {
+            self.create_message_chat(&request).await
+        };
+
+        // On failure, try fallback proxy
+        match result {
+            Ok(response) => Ok(response),
+            Err(err) => {
+                if let Some(proxy) = self.find_fallback_proxy() {
+                    logging::warn(format!(
+                        "API key request failed ({}), falling back to proxy '{}'",
+                        err,
+                        proxy.name()
+                    ));
+                    self.create_message_via_proxy(proxy, &request).await
+                } else {
+                    Err(err)
+                }
+            }
         }
-        self.create_message_chat(&request).await
     }
 
     async fn create_message_stream(
         &self,
         request: MessageRequest,
     ) -> Result<crate::llm_client::StreamEventBox> {
-        if self.api_provider == ApiProvider::OpenaiCodex {
-            return self.handle_responses_stream(request).await;
+        // Check if a proxy with mode=always should be used
+        if let Some(proxy) = self.find_active_proxy() {
+            return self.create_stream_via_proxy(proxy, &request).await;
         }
-        if self.api_provider == ApiProvider::Anthropic {
-            return self.handle_anthropic_stream(request).await;
+
+        let result = if self.api_provider == ApiProvider::OpenaiCodex {
+            self.handle_responses_stream(request.clone()).await
+        } else if self.api_provider == ApiProvider::Anthropic {
+            self.handle_anthropic_stream(request.clone()).await
+        } else {
+            self.handle_chat_completion_stream(request.clone()).await
+        };
+
+        // On failure, try fallback proxy
+        match result {
+            Ok(response) => Ok(response),
+            Err(err) => {
+                if let Some(proxy) = self.find_fallback_proxy() {
+                    logging::warn(format!(
+                        "API key stream request failed ({}), falling back to proxy '{}'",
+                        err,
+                        proxy.name()
+                    ));
+                    self.create_stream_via_proxy(proxy, &request).await
+                } else {
+                    Err(err)
+                }
+            }
         }
-        self.handle_chat_completion_stream(request).await
     }
 }
 

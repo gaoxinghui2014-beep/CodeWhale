@@ -2019,6 +2019,12 @@ pub struct Config {
     #[serde(default)]
     pub code_compaction: Option<codewhale_config::CodeCompactionToml>,
 
+    /// Curl-based proxy/relay services.
+    #[serde(default, alias = "proxyServices")]
+    pub proxy_services: Option<Vec<codewhale_config::ProxyServiceToml>>,
+    /// Name of the proxy service to use when API key requests fail.
+    pub fallback_proxy: Option<String>,
+
     /// Sub-agent model overrides.
     #[serde(default)]
     pub subagents: Option<SubagentsConfig>,
@@ -5039,6 +5045,8 @@ fn merge_config(base: Config, override_cfg: Config) -> Config {
         workshop: override_cfg.workshop.or(base.workshop),
         exec_policy_engine: override_cfg.exec_policy_engine,
         code_compaction: override_cfg.code_compaction.or(base.code_compaction),
+        proxy_services: override_cfg.proxy_services.or(base.proxy_services),
+        fallback_proxy: override_cfg.fallback_proxy.or(base.fallback_proxy),
     }
 }
 

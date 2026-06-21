@@ -279,6 +279,23 @@ impl ProviderKind {
     }
 }
 
+/// Proxy service configuration for curl-based relay/proxy services.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProxyServiceToml {
+    /// Human-readable name for this proxy service (used in logs and UI).
+    pub name: String,
+    /// Raw curl command template. The body's `messages[*].content` fields
+    /// (or `{{PROMPT}}` placeholder) will be substituted with the actual prompt.
+    pub curl_template: String,
+    /// When to use this proxy: "always" or "fallback".
+    #[serde(default = "default_proxy_mode")]
+    pub mode: String,
+}
+
+fn default_proxy_mode() -> String {
+    "fallback".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfigToml {
     pub api_key: Option<String>,
@@ -660,6 +677,13 @@ pub struct ConfigToml {
     /// Code generation compaction settings (ponytail ladder). Default enabled.
     #[serde(default)]
     pub code_compaction: Option<CodeCompactionToml>,
+    /// Curl-based proxy/relay services. When configured, these bypass the normal
+    /// API-key path and use the specified curl command template instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proxy_services: Vec<ProxyServiceToml>,
+    /// Name of the proxy service to use when API key requests fail.
+    /// Must match a `name` in `[[proxy_services]]`.
+    pub fallback_proxy: Option<String>,
     #[serde(flatten)]
     pub extras: BTreeMap<String, toml::Value>,
 }
@@ -2118,6 +2142,8 @@ impl ConfigToml {
             yolo,
             verbosity,
             http_headers,
+            proxy_services: self.proxy_services.clone(),
+            fallback_proxy: self.fallback_proxy.clone(),
         }
     }
 }
@@ -2894,6 +2920,9 @@ pub struct ResolvedRuntimeOptions {
     pub yolo: Option<bool>,
     pub verbosity: Option<String>,
     pub http_headers: BTreeMap<String, String>,
+    /// Resolved proxy services configuration.
+    pub proxy_services: Vec<ProxyServiceToml>,
+    pub fallback_proxy: Option<String>,
 }
 
 #[derive(Debug, Clone)]
