@@ -657,6 +657,9 @@ pub struct ConfigToml {
     /// workers inherit conservative Sandbox defaults.
     #[serde(default)]
     pub fleet: Option<FleetConfigToml>,
+    /// Code generation compaction settings (ponytail ladder). Default enabled.
+    #[serde(default)]
+    pub code_compaction: Option<CodeCompactionToml>,
     #[serde(flatten)]
     pub extras: BTreeMap<String, toml::Value>,
 }
@@ -1450,6 +1453,42 @@ impl Default for FleetConfigToml {
             max_trust_level: default_fleet_max_trust_level_str(),
             roles: BTreeMap::new(),
             exec: FleetExecConfig::default(),
+        }
+    }
+}
+
+/// On-disk schema for the `[code_compaction]` table.
+///
+/// Controls the ponytail-inspired code generation compaction strategy.
+/// When enabled (default), the model is instructed to prefer standard
+/// library, native platform features, one-liners, and existing dependencies
+/// before writing custom code — using a six-rung decision ladder (YAGNI →
+/// stdlib → native → existing dep → one-line → minimum).
+///
+/// See `docs/ponytail-code-compaction-strategy.md` for the full strategy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeCompactionToml {
+    /// Enable or disable code generation compaction. Default: true.
+    #[serde(default = "default_code_compaction_enabled")]
+    pub enabled: bool,
+    /// Intensity level: "lite", "full" (default), or "ultra".
+    #[serde(default = "default_code_compaction_level")]
+    pub level: String,
+}
+
+fn default_code_compaction_enabled() -> bool {
+    true
+}
+
+fn default_code_compaction_level() -> String {
+    "full".to_string()
+}
+
+impl Default for CodeCompactionToml {
+    fn default() -> Self {
+        Self {
+            enabled: default_code_compaction_enabled(),
+            level: default_code_compaction_level(),
         }
     }
 }

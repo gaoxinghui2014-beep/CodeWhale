@@ -1,0 +1,11 @@
+[package]
+name = "codewhale-code-compact"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Code generation compaction strategy: injects ponytail-inspired decision ladder rules to reduce code volume from AI agents"
+
+[dependencies]
+serde = { workspace = true }

@@ -119,7 +119,5 @@ pub fn apply_token_budget(content: &str, budget_bytes: usize) -> Cow<'_, str> {
 
     let truncated = &content[..end];
     let omitted = content.len() - end;
-    Cow::Owned(format!(
-        "{truncated}\n\n[… {omitted} bytes truncated …]"
-    ))
+    Cow::Owned(format!("{truncated}\n\n[… {omitted} bytes truncated …]"))
 }

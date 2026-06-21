@@ -6,7 +6,10 @@
 
 use crate::{
     CompressResult, ContentType,
-    compressors::{Compressor, json::JsonCompressor, log::LogCompressor, diff::DiffCompressor, search::SearchCompressor, text::TextCompressor},
+    compressors::{
+        Compressor, diff::DiffCompressor, json::JsonCompressor, log::LogCompressor,
+        search::SearchCompressor, text::TextCompressor,
+    },
     detector,
 };
 
@@ -129,7 +132,12 @@ impl CompressionPipeline {
     }
 
     /// 根据类型路由到压缩器。
-    fn route(&self, content: &str, tool_name: &str, content_type: ContentType) -> (String, Option<String>) {
+    fn route(
+        &self,
+        content: &str,
+        tool_name: &str,
+        content_type: ContentType,
+    ) -> (String, Option<String>) {
         let (compressed, strategy_name) = match content_type {
             ContentType::Json if self.config.enable_json => {
                 (self.json_compressor.compress(content, tool_name), "json")
@@ -140,9 +148,10 @@ impl CompressionPipeline {
             ContentType::Diff if self.config.enable_diff => {
                 (self.diff_compressor.compress(content, tool_name), "diff")
             }
-            ContentType::Search if self.config.enable_search => {
-                (self.search_compressor.compress(content, tool_name), "search")
-            }
+            ContentType::Search if self.config.enable_search => (
+                self.search_compressor.compress(content, tool_name),
+                "search",
+            ),
             ContentType::Code => {
                 // 代码不压缩（只做无损 minify 太危险）
                 return (content.to_string(), None);
@@ -227,6 +236,8 @@ mod tests {
         let content = "a".repeat(200); // 200 字节全相同字符
         let result = pipeline.compress(&content, "unknown");
         // 压缩后不应比原始更大
-        assert!(result.tokens_after <= result.tokens_before || result.strategy == "inflation_guard");
+        assert!(
+            result.tokens_after <= result.tokens_before || result.strategy == "inflation_guard"
+        );
     }
 }

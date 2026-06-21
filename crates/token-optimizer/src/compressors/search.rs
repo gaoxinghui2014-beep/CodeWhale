@@ -67,16 +67,18 @@ impl Compressor for SearchCompressor {
         let kept: Vec<(String, Vec<SearchMatch>)> = sorted
             .iter()
             .take(self.config.max_files)
-            .map(|(file, matches)| {
-                ((*file).clone(), (*matches).clone())
-            })
+            .map(|(file, matches)| ((*file).clone(), (*matches).clone()))
             .collect();
 
         let omitted_files = file_count - self.config.max_files;
         let kept_map: std::collections::HashMap<String, Vec<SearchMatch>> =
             kept.into_iter().collect();
 
-        format_grouped(&kept_map, self.config.max_matches_per_file, Some(omitted_files))
+        format_grouped(
+            &kept_map,
+            self.config.max_matches_per_file,
+            Some(omitted_files),
+        )
     }
 }
 
@@ -107,10 +109,13 @@ fn group_by_file(content: &str) -> std::collections::HashMap<String, Vec<SearchM
             });
         } else {
             // 无法解析：放入 "results" 伪文件
-            result.entry("results".to_string()).or_default().push(SearchMatch {
-                line_number: String::new(),
-                content: line.to_string(),
-            });
+            result
+                .entry("results".to_string())
+                .or_default()
+                .push(SearchMatch {
+                    line_number: String::new(),
+                    content: line.to_string(),
+                });
         }
     }
 

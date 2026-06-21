@@ -97,9 +97,10 @@ fn compress_array(arr: &[serde_json::Value], max_items: usize, marker: &str) -> 
     let mut kept: Vec<serde_json::Value> = arr[..max_items].to_vec();
 
     // 添加截断标记
-    let marker_value = serde_json::Value::String(
-        marker.replace("… N items omitted …", &format!("… {omitted} items omitted …"))
-    );
+    let marker_value = serde_json::Value::String(marker.replace(
+        "… N items omitted …",
+        &format!("… {omitted} items omitted …"),
+    ));
     kept.push(marker_value);
 
     serde_json::Value::Array(kept)

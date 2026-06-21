@@ -3,6 +3,7 @@ members = [
     "crates/agent",
     "crates/app-server",
     "crates/cli",
+    "crates/code-compact",
     "crates/config",
     "crates/core",
     "crates/execpolicy",

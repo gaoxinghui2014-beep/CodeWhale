@@ -2164,6 +2164,7 @@ impl RuntimeThreadManager {
             launch_concurrency: self.config.launch_concurrency(),
             features: self.config.features(),
             compaction,
+            code_compaction_block: self.config.code_compaction_block(),
             todos: new_shared_todo_list(),
             plan_state: new_shared_plan_state(),
             goal_state: crate::tools::goal::new_shared_goal_state(),

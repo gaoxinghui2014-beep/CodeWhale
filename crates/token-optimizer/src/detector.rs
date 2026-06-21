@@ -122,9 +122,7 @@ fn looks_like_search_results(content: &str) -> bool {
             let parts: Vec<&str> = l.splitn(3, ':').collect();
             parts.len() >= 3
                 && !parts[0].is_empty()
-                && parts[1]
-                    .chars()
-                    .all(|c| c.is_ascii_digit())
+                && parts[1].chars().all(|c| c.is_ascii_digit())
                 && !parts[1].is_empty()
         })
         .count();
@@ -138,17 +136,13 @@ fn looks_like_log(content: &str) -> bool {
     let lines: Vec<&str> = content.lines().take(20).collect();
 
     let log_prefixes = [
-        "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE", "FATAL", "error",
-        "warn", "warning", "info", "debug", "trace", "fatal",
+        "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE", "FATAL", "error", "warn", "warning",
+        "info", "debug", "trace", "fatal",
     ];
 
     let log_line_count = lines
         .iter()
-        .filter(|l| {
-            log_prefixes
-                .iter()
-                .any(|prefix| l.contains(prefix))
-        })
+        .filter(|l| log_prefixes.iter().any(|prefix| l.contains(prefix)))
         .count();
 
     // 如果超过 30% 的行包含已知日志前缀，则是日志
@@ -164,20 +158,35 @@ fn looks_like_code(content: &str) -> bool {
     }
 
     let code_indicators = [
-        "fn ", "def ", "class ", "import ", "from ", "use ",
-        "pub ", "const ", "let ", "var ", "function ",
-        "if ", "for ", "while ", "match ", "switch ",
-        "#include", "package ", "module ",
-        "#define", "#ifdef", "#ifndef",
+        "fn ",
+        "def ",
+        "class ",
+        "import ",
+        "from ",
+        "use ",
+        "pub ",
+        "const ",
+        "let ",
+        "var ",
+        "function ",
+        "if ",
+        "for ",
+        "while ",
+        "match ",
+        "switch ",
+        "#include",
+        "package ",
+        "module ",
+        "#define",
+        "#ifdef",
+        "#ifndef",
     ];
 
     let code_line_count = lines
         .iter()
         .filter(|l| {
             let trimmed = l.trim();
-            code_indicators
-                .iter()
-                .any(|kw| trimmed.starts_with(kw))
+            code_indicators.iter().any(|kw| trimmed.starts_with(kw))
         })
         .count();
 
@@ -215,7 +224,8 @@ mod tests {
 
     #[test]
     fn detects_log() {
-        let content = "ERROR: something failed\nWARN: retry attempt 1\nINFO: processing\nDEBUG: value=42";
+        let content =
+            "ERROR: something failed\nWARN: retry attempt 1\nINFO: processing\nDEBUG: value=42";
         assert_eq!(detect_by_content(content), ContentType::Log);
     }
 
@@ -227,18 +237,12 @@ mod tests {
 
     #[test]
     fn detects_diff_by_tool_name() {
-        assert_eq!(
-            detect_by_tool_name("git_diff"),
-            Some(ContentType::Diff)
-        );
+        assert_eq!(detect_by_tool_name("git_diff"), Some(ContentType::Diff));
     }
 
     #[test]
     fn detects_search_by_tool_name() {
-        assert_eq!(
-            detect_by_tool_name("grep_files"),
-            Some(ContentType::Search)
-        );
+        assert_eq!(detect_by_tool_name("grep_files"), Some(ContentType::Search));
     }
 
     #[test]

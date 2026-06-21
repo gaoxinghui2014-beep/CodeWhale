@@ -62,9 +62,7 @@ impl Compressor for TextCompressor {
             let head_part = &content[..head];
             let tail_part = &content[tail_start..];
 
-            format!(
-                "{head_part}\n\n[… {omitted} bytes omitted …]\n\n{tail_part}"
-            )
+            format!("{head_part}\n\n[… {omitted} bytes omitted …]\n\n{tail_part}")
         } else {
             let end = find_char_boundary(content, self.config.max_bytes - 128);
             let omitted = content.len() - end;

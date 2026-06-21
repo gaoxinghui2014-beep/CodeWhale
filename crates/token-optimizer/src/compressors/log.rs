@@ -80,7 +80,11 @@ impl Compressor for LogCompressor {
             .collect();
 
         // 构建选择索引：错误/警告 + 上下文窗口 + 首尾行
-        let selected = select_lines(&classified, self.config.max_lines, self.config.context_window);
+        let selected = select_lines(
+            &classified,
+            self.config.max_lines,
+            self.config.context_window,
+        );
 
         // 构建输出
         let mut result = String::with_capacity(content.len() / 2);
@@ -131,11 +135,7 @@ fn classify_line(line: &str) -> LogLevel {
 }
 
 /// 选择保留的行索引。
-fn select_lines(
-    classified: &[(LogLevel, bool)],
-    max_lines: usize,
-    context: usize,
-) -> Vec<usize> {
+fn select_lines(classified: &[(LogLevel, bool)], max_lines: usize, context: usize) -> Vec<usize> {
     let total = classified.len();
     let mut selected = Vec::with_capacity(max_lines);
 

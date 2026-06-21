@@ -27,10 +27,7 @@ pub enum ContextCheckResult {
     /// 上下文接近容量上限，应尝试压缩。
     CompactionNeeded,
     /// 上下文严重超限且压缩已被熔断器禁用。
-    ContextExhausted {
-        utilization_pct: u8,
-        reason: String,
-    },
+    ContextExhausted { utilization_pct: u8, reason: String },
 }
 
 /// 跟踪上下文窗口利用率与压缩健康状态。

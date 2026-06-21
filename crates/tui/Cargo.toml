@@ -21,6 +21,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.100"
 codewhale-config = { path = "../config", version = "0.8.62" }
+codewhale-code-compact = { path = "../code-compact", version = "0.8.62" }
 codewhale-execpolicy = { path = "../execpolicy", version = "0.8.62" }
 codewhale-protocol = { path = "../protocol", version = "0.8.62" }
 codewhale-release = { path = "../release", version = "0.8.62" }

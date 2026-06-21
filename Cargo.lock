@@ -840,6 +840,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "codewhale-code-compact"
+version = "0.8.62"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "codewhale-config"
 version = "0.8.62"
 dependencies = [
@@ -979,6 +986,7 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
+ "codewhale-code-compact",
  "codewhale-config",
  "codewhale-execpolicy",
  "codewhale-protocol",

@@ -622,7 +622,10 @@ fn try_content_aware_compression(tool_name: &str, raw: &str) -> Option<String> {
     }
 
     // 忽略已经被专有路径处理的工具名称
-    if matches!(tool_name, "agent" | "run_tests" | "edit_file" | "apply_patch") {
+    if matches!(
+        tool_name,
+        "agent" | "run_tests" | "edit_file" | "apply_patch"
+    ) {
         return None;
     }
 

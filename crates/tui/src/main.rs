@@ -6348,6 +6348,7 @@ async fn run_exec_agent(
         goal_state: crate::tools::goal::new_shared_goal_state(),
         max_spawn_depth: crate::tools::subagent::DEFAULT_MAX_SPAWN_DEPTH,
         network_policy,
+        code_compaction_block: execution_config.code_compaction_block(),
         snapshots_enabled: execution_config.snapshots_config().enabled,
         snapshots_max_workspace_bytes: execution_config
             .snapshots_config()

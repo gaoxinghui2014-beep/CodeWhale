@@ -1090,6 +1090,7 @@ fn build_engine_config(app: &App, config: &Config) -> EngineConfig {
         launch_concurrency: config.launch_concurrency(),
         features: config.features(),
         compaction: app.compaction_config(),
+        code_compaction_block: config.code_compaction_block(),
         todos: app.todos.clone(),
         plan_state: app.plan_state.clone(),
         goal_state: crate::tools::goal::new_shared_goal_state_from_host_status(
@@ -6089,6 +6090,7 @@ async fn dispatch_user_message(
                 show_thinking: app.show_thinking,
                 verbosity: app.verbosity.as_deref(),
                 skills_scan_codewhale_only: app.skills_scan_codewhale_only,
+                code_compaction_block: config.code_compaction_block(),
             },
         ),
     );

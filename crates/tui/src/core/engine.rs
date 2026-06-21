@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
+use codewhale_code_compact::CodeCompactionConfig;
 use codewhale_execpolicy::{AskForApproval, ExecPolicyContext};
 use codewhale_protocol::runtime::DynamicToolSpec;
 use futures_util::StreamExt;
@@ -27,8 +28,8 @@ use crate::client::DeepSeekClient;
 use crate::compaction::{
     CompactionConfig, compact_messages_safe, merge_system_prompts, should_compact,
 };
-use crate::context_guard::ContextGuard;
 use crate::config::{ApiProvider, Config, DEFAULT_MAX_SUBAGENTS, DEFAULT_TEXT_MODEL};
+use crate::context_guard::ContextGuard;
 use crate::error_taxonomy::{ErrorCategory, ErrorEnvelope, StreamError};
 use crate::features::{Feature, Features};
 use crate::llm_client::LlmClient;
@@ -382,6 +383,9 @@ pub struct EngineConfig {
     /// itself must be inside the workspace). Mirrors the
     /// `workspace_follow_symlinks` setting.
     pub workspace_follow_symlinks: bool,
+    /// Pre-rendered code compaction instruction block. None = disabled.
+    /// Built from `[code_compaction]` config; default enabled (full).
+    pub code_compaction_block: Option<String>,
     /// Ask-only permission rules loaded from sibling `permissions.toml`.
     pub exec_policy_engine: codewhale_execpolicy::ExecPolicyEngine,
 }
@@ -447,6 +451,7 @@ impl Default for EngineConfig {
             verbosity: None,
             tools: None,
             workspace_follow_symlinks: false,
+            code_compaction_block: None,
             exec_policy_engine: codewhale_execpolicy::ExecPolicyEngine::new(Vec::new(), Vec::new()),
         }
     }
@@ -807,6 +812,10 @@ impl Engine {
                     show_thinking: config.show_thinking,
                     verbosity: config.verbosity.as_deref(),
                     skills_scan_codewhale_only: config.skills_scan_codewhale_only,
+                    code_compaction_block: config.code_compaction_block.clone().or_else(|| {
+                        // Default enabled at full intensity when not explicitly configured.
+                        CodeCompactionConfig::default().instruction_block()
+                    }),
                 },
             );
         let stable_prompt = Some(system_prompt);
@@ -2388,47 +2397,47 @@ impl Engine {
             {
                 Ok(result) => {
                     self.context_guard.record_compaction_success();
-                if !result.messages.is_empty() || self.session.messages.is_empty() {
-                    let messages_after = result.messages.len();
-                    self.session.messages = result.messages.into();
-                    self.merge_compaction_summary(result.summary_prompt);
-                    self.emit_session_updated().await;
-                    let removed = messages_before.saturating_sub(messages_after);
-                    let message = if result.retries_used > 0 {
-                        format!(
-                            "Compaction complete: {messages_before} → {messages_after} messages ({removed} removed, {} retries)",
-                            result.retries_used
+                    if !result.messages.is_empty() || self.session.messages.is_empty() {
+                        let messages_after = result.messages.len();
+                        self.session.messages = result.messages.into();
+                        self.merge_compaction_summary(result.summary_prompt);
+                        self.emit_session_updated().await;
+                        let removed = messages_before.saturating_sub(messages_after);
+                        let message = if result.retries_used > 0 {
+                            format!(
+                                "Compaction complete: {messages_before} → {messages_after} messages ({removed} removed, {} retries)",
+                                result.retries_used
+                            )
+                        } else {
+                            format!(
+                                "Compaction complete: {messages_before} → {messages_after} messages ({removed} removed)"
+                            )
+                        };
+                        self.emit_compaction_completed(
+                            id,
+                            false,
+                            message,
+                            Some(messages_before),
+                            Some(messages_after),
                         )
+                        .await;
                     } else {
-                        format!(
-                            "Compaction complete: {messages_before} → {messages_after} messages ({removed} removed)"
-                        )
-                    };
-                    self.emit_compaction_completed(
-                        id,
-                        false,
-                        message,
-                        Some(messages_before),
-                        Some(messages_after),
-                    )
-                    .await;
-                } else {
-                    let message = "Compaction skipped: produced empty result".to_string();
+                        let message = "Compaction skipped: produced empty result".to_string();
+                        self.emit_compaction_failed(id, false, message.clone())
+                            .await;
+                        turn_status = TurnOutcomeStatus::Failed;
+                        turn_error = Some(message);
+                    }
+                }
+                Err(err) => {
+                    self.context_guard.record_compaction_failure();
+                    let message = format!("Manual context compaction failed: {err}");
                     self.emit_compaction_failed(id, false, message.clone())
                         .await;
+                    let _ = self.tx_event.send(Event::status(message.clone())).await;
                     turn_status = TurnOutcomeStatus::Failed;
                     turn_error = Some(message);
                 }
-            }
-            Err(err) => {
-                self.context_guard.record_compaction_failure();
-                let message = format!("Manual context compaction failed: {err}");
-                self.emit_compaction_failed(id, false, message.clone())
-                    .await;
-                let _ = self.tx_event.send(Event::status(message.clone())).await;
-                turn_status = TurnOutcomeStatus::Failed;
-                turn_error = Some(message);
-            }
             } // end match compact_messages_safe
         } // end else (context guard not disabled)
 
@@ -2911,6 +2920,7 @@ impl Engine {
                 show_thinking: self.config.show_thinking,
                 verbosity: self.config.verbosity.as_deref(),
                 skills_scan_codewhale_only: self.config.skills_scan_codewhale_only,
+                code_compaction_block: self.config.code_compaction_block.clone(),
             },
         );
         let mut stable_prompt =

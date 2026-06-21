@@ -1148,9 +1148,7 @@ pub async fn compact_messages_safe(
         if mc_stats.envelopes_cleared > 0 {
             logging::info(format!(
                 "Microcompact cleared {} envelopes ({} entries, {} bytes freed)",
-                mc_stats.envelopes_cleared,
-                mc_stats.entries_cleared,
-                mc_stats.bytes_freed,
+                mc_stats.envelopes_cleared, mc_stats.entries_cleared, mc_stats.bytes_freed,
             ));
             // Re-check if we're still over threshold
             if !should_compact(

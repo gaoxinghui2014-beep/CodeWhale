@@ -47,6 +47,9 @@ pub struct PromptSessionContext<'a> {
     /// Restrict skill discovery to CodeWhale-owned roots plus explicit
     /// `skills_dir` configuration.
     pub skills_scan_codewhale_only: bool,
+    /// Pre-rendered code compaction instruction block (ponytail ladder).
+    /// None when disabled, Some(block) when enabled.
+    pub code_compaction_block: Option<String>,
 }
 
 impl Default for PromptSessionContext<'_> {
@@ -62,6 +65,7 @@ impl Default for PromptSessionContext<'_> {
             show_thinking: true,
             verbosity: None,
             skills_scan_codewhale_only: false,
+            code_compaction_block: None,
         }
     }
 }
@@ -1016,6 +1020,7 @@ pub fn system_prompt_for_mode_with_context_and_skills(
             show_thinking: true,
             verbosity: None,
             skills_scan_codewhale_only: false,
+            code_compaction_block: None,
         },
     )
 }
@@ -1111,6 +1116,17 @@ pub fn system_prompt_for_mode_with_context_skills_session_and_approval(
         full_prompt = format!(
             "{full_prompt}\n\n{}",
             concise_output_discipline_instruction()
+        );
+    }
+
+    // 2.5. Code compaction instructions (ponytail ladder). Injected above
+    // the volatile-content boundary because the flag is session-stable:
+    // toggling code compaction requires restarting the session.
+    if let Some(ref block) = session_context.code_compaction_block {
+        full_prompt.push_str("\n\n");
+        full_prompt.push_str(block);
+        full_prompt.push_str(
+            "\n\n_This code compaction discipline is active. Set `[code_compaction] enabled = false` in config.toml to disable._"
         );
     }
 
@@ -1909,6 +1925,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -1981,6 +1998,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2026,6 +2044,7 @@ mod tests {
                 show_thinking: false,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2081,6 +2100,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2187,6 +2207,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2226,6 +2247,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2257,6 +2279,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2317,6 +2340,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2348,6 +2372,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2620,6 +2645,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -2657,6 +2683,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: None,
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,
@@ -3239,6 +3266,7 @@ mod tests {
                 show_thinking: true,
                 verbosity: Some(" Concise "),
                 skills_scan_codewhale_only: false,
+                code_compaction_block: None,
             },
         ) {
             SystemPrompt::Text(text) => text,

@@ -7,13 +7,13 @@
 //! - `SearchCompressor` — 搜索结果聚合
 //! - `TextCompressor` — 纯文本截断
 
+pub mod diff;
 pub mod json;
 pub mod log;
-pub mod diff;
 pub mod search;
 pub mod text;
 
-use crate::{ContentType, CompressResult, tokenizer};
+use crate::{CompressResult, ContentType, tokenizer};
 
 /// 压缩器 trait —— 所有压缩器实现此接口。
 pub trait Compressor: Send + Sync {

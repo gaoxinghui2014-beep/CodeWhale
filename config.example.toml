@@ -4,6 +4,12 @@
 # ║  Terminal coding agent for DeepSeek.                                          ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
+# 默认行为                                                                                                                       ││ Agents ────────────────────────────────────────┐
+                                                                                                                             ││ 3 done                                         │
+# - 默认启用（enabled = true，level = "full"）                                                                                   ││ 3 explore                                      │
+# - 用户可通过 config.toml 中设置 [code_compaction] enabled = false 关闭                                                         ││                                                │
+# - 支持三级强度：lite（建议但不强制）、full（强制阶梯）、ultra（极端 YAGNI）
+
 # See `docs/CONFIGURATION.md` for how config is loaded (profiles, env overrides, etc.).
 
 # ─────────────────────────────────────────────────────────────────────────────────
@@ -1018,6 +1024,22 @@ default_text_model = "deepseek-ai/deepseek-v4-pro"
 # max_tool_calls = 30
 # timeout_seconds = 900
 # trust_level = "local"
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# Code Compaction (ponytail ladder) — code generation constraint system
+# ─────────────────────────────────────────────────────────────────────────────────
+# When enabled (default), the model is instructed to prefer standard library,
+# native platform features, one-liners, and existing dependencies before writing
+# custom code — using a six-rung decision ladder (YAGNI → stdlib → native →
+# existing dep → one-line → minimum). Based on the ponytail "lazy senior
+# developer" strategy. See docs/ponytail-code-compaction-strategy.md.
+#
+# [code_compaction]
+# enabled = true         # Enable/disable the code compaction strategy
+# level = "full"         # Intensity: "lite", "full" (default), or "ultra"
+#                         #   lite:  build what's asked, name lazier alternative
+#                         #   full:  ladder enforced, stdlib and native first
+#                         #   ultra: YAGNI extremist, deletion before addition
 
 # ─────────────────────────────────────────────────────────────────────────────────
 # Requirements (admin constraints) example file

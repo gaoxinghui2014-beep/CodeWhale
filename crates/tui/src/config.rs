@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use codewhale_code_compact;
 use codewhale_execpolicy::ExecPolicyEngine;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -2014,6 +2015,10 @@ pub struct Config {
     #[serde(default)]
     pub fleet: Option<codewhale_config::FleetConfigToml>,
 
+    /// Code generation compaction settings. Default enabled (full).
+    #[serde(default)]
+    pub code_compaction: Option<codewhale_config::CodeCompactionToml>,
+
     /// Sub-agent model overrides.
     #[serde(default)]
     pub subagents: Option<SubagentsConfig>,
@@ -3335,6 +3340,26 @@ impl Config {
     #[must_use]
     pub fn snapshots_config(&self) -> SnapshotsConfig {
         self.snapshots.clone().unwrap_or_default()
+    }
+
+    /// Resolve code compaction instruction block from `[code_compaction]` config.
+    /// Returns `None` when disabled, `Some(block)` when enabled.
+    #[must_use]
+    pub fn code_compaction_block(&self) -> Option<String> {
+        let toml = self.code_compaction.clone().unwrap_or_default();
+        if !toml.enabled {
+            return None;
+        }
+        let level = match toml.level.as_str() {
+            "lite" => codewhale_code_compact::CompactLevel::Lite,
+            "ultra" => codewhale_code_compact::CompactLevel::Ultra,
+            _ => codewhale_code_compact::CompactLevel::Full,
+        };
+        let cfg = codewhale_code_compact::CodeCompactionConfig {
+            enabled: true,
+            level,
+        };
+        cfg.instruction_block()
     }
 
     /// Resolve community skill settings with defaults applied.
@@ -4998,6 +5023,7 @@ fn merge_config(base: Config, override_cfg: Config) -> Config {
         runtime_api: override_cfg.runtime_api.or(base.runtime_api),
         workshop: override_cfg.workshop.or(base.workshop),
         exec_policy_engine: override_cfg.exec_policy_engine,
+        code_compaction: override_cfg.code_compaction.or(base.code_compaction),
     }
 }
 
