@@ -2130,6 +2130,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: std::collections::BTreeMap::new(),
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         }
     }
 
@@ -3494,6 +3496,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: std::collections::BTreeMap::new(),
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         };
 
         let cmd = build_tui_command(&cli, &resolved, Vec::new()).expect("command");
@@ -3554,6 +3558,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: std::collections::BTreeMap::new(),
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         };
 
         let cmd = build_tui_command(&cli, &resolved, vec!["doctor".to_string()])
@@ -3595,6 +3601,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: std::collections::BTreeMap::new(),
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         };
 
         let cmd = build_tui_command(&cli, &resolved, vec!["doctor".to_string()])
@@ -3696,6 +3704,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: resolved_headers,
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         };
 
         let cmd = build_tui_command(&cli, &resolved, Vec::new()).expect("command");
@@ -3801,6 +3811,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: std::collections::BTreeMap::new(),
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         };
 
         let cmd = build_tui_command(&cli, &resolved, Vec::new()).expect("command");
@@ -3868,6 +3880,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: std::collections::BTreeMap::new(),
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         };
 
         let cmd = build_tui_command(&cli, &resolved, Vec::new()).expect("command");
@@ -3936,6 +3950,8 @@ mod tests {
             yolo: None,
             verbosity: None,
             http_headers: std::collections::BTreeMap::new(),
+            proxy_services: Vec::new(),
+            fallback_proxy: None,
         };
 
         let cmd = build_tui_command(&cli, &resolved, Vec::new()).expect("command");
@@ -3984,6 +4000,8 @@ mod tests {
                 yolo: None,
                 verbosity: None,
                 http_headers: std::collections::BTreeMap::new(),
+                proxy_services: Vec::new(),
+                fallback_proxy: None,
             };
 
             let cmd = build_tui_command(&cli, &resolved, Vec::new())
