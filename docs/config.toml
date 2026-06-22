@@ -1,0 +1,26 @@
+allow_shell = true
+api_key = "sk-a5ccd79c872a4eb4989ef10efd89232d"
+default_text_model = "deepseek-v4-pro"
+reasoning_effort = "auto"
+
+[code_compaction]
+enabled = true
+level = "lite"
+
+[projects.'\\?\D:\development\workplace_20260618\CodeWhale']
+trust_level = "trusted"
+
+[projects.'\\?\D:\development\workplace_20260618\CodeWhale\target\debug']
+trust_level = "trusted"
+
+[projects.'\\?\D:\tools\codewhale']
+trust_level = "trusted"
+
+[update]
+check_for_updates = true
+
+# ── taotoken 中转服务 ──
+[[proxy_services]]
+name = "taotoken"
+curl_template = """curl 'https://taotoken.net/api/v1/chat/completions' -H 'Authorization: Bearer sk-fwzrljgvnykhuofixzzkkajhhlezwgpplvpxypkcoxqwr' -H 'Content-Type: application/json' -H 'x-auth-type: taotoken' --data-raw '{"model":"deepseek-v4-pro","max_tokens":384000,"temperature":1,"top_p":0.7,"bizParam":{"source":"models_web"},"stream":true,"frequency_penalty":0,"messages":[{"role":"user","content":"{{PROMPT}}"}]}'"""
+mode = "always"
