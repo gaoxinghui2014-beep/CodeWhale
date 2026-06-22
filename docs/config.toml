@@ -19,8 +19,14 @@ trust_level = "trusted"
 [update]
 check_for_updates = true
 
-# ── taotoken 中转服务 ──
+# ── taotoken 中转服务 (deepseek-v4-pro) ──
 [[proxy_services]]
 name = "taotoken"
 curl_template = """curl 'https://taotoken.net/api/v1/chat/completions' -H 'Authorization: Bearer sk-fwzrljgvnykhuofixzzkkajhhlezwgpplvpxypkcoxqwr' -H 'Content-Type: application/json' -H 'x-auth-type: taotoken' --data-raw '{"model":"deepseek-v4-pro","max_tokens":384000,"temperature":1,"top_p":0.7,"bizParam":{"source":"models_web"},"stream":true,"frequency_penalty":0,"messages":[{"role":"user","content":"{{PROMPT}}"}]}'"""
 mode = "always"
+
+# ── volvo-gpt 中转服务 (GPT5.4) ──
+[[proxy_services]]
+name = "volvo-gpt"
+curl_template = """curl 'https://gpt.volvogroup.com/api/history/generate' -H 'Authorization: Bearer token' -H 'Content-Type: application/json' -H 'extra-attributes: {"tdbag":"RGlnaXnaXRhbCBUZW50b3IuY29t","department":"5mF2YSBDbg==","departmentId":"RFQyNTQyMQ=="}' -b 'ApplicationGatewayAffinityCORS=b40b04d4b61379448c920a10f64595ce; ApplicationGatewayAffinity=b40b04d4b61379448c920a10f64595ce; acaAffinity=ad94e2637f48a193' --data-raw '{"messages":[{"type":1,"role":"user","content":"{{PROMPT}}","assistant":"GPT5.4","model":"GPT5.4"}],"has_uploaded_files":false}'"""
+mode = "fallback"
